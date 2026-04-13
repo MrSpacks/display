@@ -153,7 +153,7 @@ class Display:
                         draw.rectangle([10, y_pos, 310, y_pos + 28], outline="red", width=2) # 
                         color = "red"
                     # Добавили иконку папки перед названием
-                    icon = '⚙' if item == "Settings" else '📂'
+                    icon = '⚙' if item == "Settings" else '▣'
                     draw.text((20, y_pos), f"{icon} {item}", fill=color, font=app.font)
 
             elif app.state == "SETTINGS_MENU":
@@ -178,9 +178,9 @@ class Display:
                     draw.text((16, y_pos), item[:34], fill=color, font=app.font)
 
                 if start > 0:
-                    draw.text((294, 40), "^", fill="gray", font=app.font)
+                    draw.text((294, 40), "▲", fill="gray", font=app.font)
                 if end < len(items):
-                    draw.text((294, 188), "v", fill="gray", font=app.font)
+                    draw.text((294, 188), "▼", fill="gray", font=app.font)
 
                 draw.text((10, 210), app.status_message[:40], fill="cyan", font=app.font)
 
@@ -205,9 +205,9 @@ class Display:
                         draw.text((12, y_pos), label, fill=color, font=app.font)
 
                     if start > 0:
-                        draw.text((294, 40), "^", fill="gray", font=app.font)
+                        draw.text((294, 40), "▲", fill="gray", font=app.font)
                     if end < len(app.bt_devices):
-                        draw.text((294, 188), "v", fill="gray", font=app.font)
+                        draw.text((294, 188), "▼", fill="gray", font=app.font)
 
                 draw.text((10, 210), app.status_message[:40], fill="cyan", font=app.font)
 
@@ -238,9 +238,9 @@ class Display:
                         draw.text((12, y_pos + 3), f"{icon} {filename_display}", fill=color, font=app.font)
 
                 if start > 0:
-                    draw.text((294, 55), "^", fill="gray", font=app.font)
+                    draw.text((294, 55), "▲", fill="gray", font=app.font)
                 if end < len(app.files):
-                    draw.text((294, 210), "v", fill="gray", font=app.font)
+                    draw.text((294, 210), "▼", fill="gray", font=app.font)
 
             elif app.state == "PLAYING":
                 # ===== ЭКРАН ВОСПРОИЗВЕДЕНИЯ =====
@@ -322,7 +322,7 @@ class Display:
                     time_text = f"{mins_cur}:{secs_cur:02d} / {mins_total}:{secs_total:02d}"
                 draw.text((30, 145), f"{progress_percent:.0f}%  {time_text}", fill="white", font=app.font)
                 
-                draw.text((10, 180), "^ v Vol  [< long] <<  [>long] >>", fill="grey", font=app.font)
+                draw.text((15, 180), "▲ ▼ Vol     ◀ <<      ▶ >>     || ▶", fill="grey", font=app.font)
 
             elif app.state == "VIEWING":
                 # ===== РЕЖИМ ПРОСМОТРА (ФОТО/ВИДЕО) =====
