@@ -112,8 +112,40 @@ cd /home/spacks/display
 | --- | --- |
 | UP | Move up, increase volume, previous photo |
 | DOWN | Move down, decrease volume, next photo |
-| SELECT | Open, play, pause, confirm |
-| BACK | Back, stop playback |
+| SELECT | Open, play, pause, confirm (long-press: skip forward 10s) |
+| BACK | Back, stop playback (long-press: skip backward 10s) |
+
+## Quick Commands
+
+**Restart the player:**
+```bash
+sudo systemctl restart playerpi.service
+```
+
+**Check status:**
+```bash
+systemctl status playerpi.service
+```
+
+**View live logs:**
+```bash
+journalctl -u playerpi.service -f
+```
+
+**Stop the player:**
+```bash
+sudo systemctl stop playerpi.service
+```
+
+**Start the player:**
+```bash
+sudo systemctl start playerpi.service
+```
+
+**View last 50 log lines:**
+```bash
+journalctl -u playerpi.service -n 50 --no-pager
+```
 
 ## Service Setup
 

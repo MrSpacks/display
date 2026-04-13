@@ -2,6 +2,7 @@
 Обработка входа (кнопок)
 """
 
+import os
 import time
 
 from .config import FOLDERS, BUTTONS
@@ -53,8 +54,7 @@ class InputHandler:
                 app.volume = min(100, app.volume + 10)
                 app.volume_display_time = time.time()  # Показать полосу громкости
                 print(f"Volume: {app.volume}%")
-                # Перезапустить с новой громкостью
-                app.play_media()
+                # Не перезапускаем трек! Громкость применится при следующем воспроизведении
             elif app.state == "VIEWING":
                 if app.current_image is not None:
                     browse_photo(-1)
@@ -74,8 +74,7 @@ class InputHandler:
                 app.volume = max(0, app.volume - 10)
                 app.volume_display_time = time.time()  # Показать полосу громкости
                 print(f"Volume: {app.volume}%")
-                # Перезапустить с новой громкостью
-                app.play_media()
+                # Не перезапускаем трек! Громкость применится при следующем воспроизведении
             elif app.state == "VIEWING":
                 if app.current_image is not None:
                     browse_photo(1)
@@ -97,8 +96,16 @@ class InputHandler:
                 app.current_image = None
                 app.state = "FILE_BROWSER"
             elif app.state == "FILE_BROWSER":
-                app.state = "MAIN_MENU"
-                app.selected_idx = 0
+                # Если в подпапке - вернуться выше
+                if app.current_path:
+                    parent_path = os.path.dirname(app.current_path.rstrip('/'))
+                    app.current_path = parent_path if parent_path else ""
+                    app.files = app.load_folder_contents(app.current_folder, app.current_path)
+                    app.selected_idx = 0
+                else:
+                    # Рут категории - вернуться в полноменю
+                    app.state = "MAIN_MENU"
+                    app.selected_idx = 0
             elif app.state == "BT_DEVICES":
                 app.state = "SETTINGS_MENU"
                 app.selected_idx = 0
@@ -122,7 +129,8 @@ class InputHandler:
                     app.selected_idx = 0
                 else:
                     app.current_folder = choice
-                    app.files = app.get_files(choice)
+                    app.current_path = ""
+                    app.files = app.load_folder_contents(choice)
                     app.selected_idx = 0
                     app.state = "FILE_BROWSER"
 
@@ -154,16 +162,27 @@ class InputHandler:
             # _____ В браузере файлов _____
             elif app.state == "FILE_BROWSER":
                 if app.files:
-                    file_name = app.files[app.selected_idx]
-                    file_type = get_file_type(file_name)
-
-                    if file_type == 'photo':
-                        app.view_photo()
-                    elif file_type == 'video':
-                        app.view_video()
-                        app.state = "VIEWING"  # Переходим в режим просмотра
-                    else:  # music и другие
-                        app.play_media()
+                    item_name = app.files[app.selected_idx]
+                    
+                    # Проверяем, является ли элемент папкой
+                    if app.is_directory(item_name, app.current_folder, app.current_path):
+                        # Открыть папку
+                        if app.current_path:
+                            app.current_path = os.path.join(app.current_path, item_name)
+                        else:
+                            app.current_path = item_name
+                        app.files = app.load_folder_contents(app.current_folder, app.current_path)
+                        app.selected_idx = 0
+                    else:
+                        # Играть или открыть файл
+                        file_type = get_file_type(item_name)
+                        if file_type == 'photo':
+                            app.view_photo()
+                        elif file_type == 'video':
+                            app.view_video()
+                            app.state = "VIEWING"  # Переходим в режим просмотра
+                        else:  # music и другие
+                            app.play_media()
 
             # _____ Во время воспроизведения _____
             elif app.state == "PLAYING":

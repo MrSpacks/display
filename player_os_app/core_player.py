@@ -3,13 +3,23 @@
 """
 
 import os
+import re
 import subprocess
 import shutil
 import signal
 
 import time
-from .config import BASE_PATH, BUTTONS, FOLDERS, DEFAULT_VOLUME, FONTS, VOLUME_DISPLAY_DURATION
-from .utils import get_files, get_file_type, stop_ffplay
+from .config import (
+    BASE_PATH,
+    BUTTONS,
+    FOLDERS,
+    DEFAULT_VOLUME,
+    FONTS,
+    VOLUME_DISPLAY_DURATION,
+    VIDEO_TARGET_FPS,
+    VIDEO_DECODER_THREADS,
+)
+from .utils import get_files, get_file_type, stop_ffplay, get_folder_contents, is_item_directory
 
 # Опциональные импорты
 try:
@@ -50,8 +60,9 @@ class PlayerOS:
         # ===== СОСТОЯНИЕ ПРИЛОЖЕНИЯ =====
         self.state = "MAIN_MENU"  # Текущее состояние
         self.selected_idx = 0  # Индекс выбранного пункта
-        self.current_folder = ""  # Текущая открытая папка
-        self.files = []  # Список файлов в текущей папке
+        self.current_folder = ""  # Текущая открытая папка (категория: Music, Video, Photo)
+        self.current_path = ""  # Путь в подпапках относительно текущей категории
+        self.files = []  # Список файлов и папок в текущей папке (строки имён)
         self.status_message = "Ready"
         self.audio_output_mode = "jack"  # jack | bluetooth
         self.bt_devices = []  # [{'mac': str, 'name': str}]
@@ -69,7 +80,12 @@ class PlayerOS:
         self.audio_process = None  # Отдельный аудиопроцесс (для видео)
         self.is_playing = False  # Флаг проигрывания
         self.is_paused = False  # Флаг паузы воспроизведения
-        self.video_target_fps = 24  # Целевая частота кадров для экрана
+        self.video_target_fps = VIDEO_TARGET_FPS  # Целевая частота кадров для экрана
+        
+        # ===== ОТСЛЕЖИВАНИЕ ВРЕМЕНИ ВОСПРОИЗВЕДЕНИЯ =====
+        self.playback_start_time = 0  # Время (unix) когда начали проигрывание
+        self.current_track_duration = 0  # Длительность трека в секундах
+        self.media_seek_offset = 0  # Текущее смещение при перемотке (секунды)
 
         # ===== ДЛЯ ПРОСМОТРА ВИДЕО (ДЕКОДИРОВАНИЕ В PYTHON) =====
         self.video_frame = None          # Текущий кадр видео
@@ -109,8 +125,38 @@ class PlayerOS:
             self.big_font = None
 
     def get_files(self, folder):
-        """Получить список файлов в папке"""
+        """Получить список файлов в папке (legacy, для совместимости)"""
         return get_files(folder)
+    
+    def load_folder_contents(self, folder, rel_path=""):
+        """
+        Загрузить содержимое папки с поддержкой подпапок
+        
+        Args:
+            folder (str): Категория (Music, Video, Photo)
+            rel_path (str): Относительный путь в подпапках
+        
+        Returns:
+            list: Список имён элементов (папок/файлов)
+        """
+        base_path = os.path.join(BASE_PATH, folder.lower())
+        items = get_folder_contents(base_path, rel_path)
+        return [name for name, _ in items]
+    
+    def is_directory(self, item_name, folder, rel_path=""):
+        """
+        Проверить, является ли элемент папкой
+        
+        Args:
+            item_name (str): Имя элемента
+            folder (str): Категория
+            rel_path (str): Относительный путь
+        
+        Returns:
+            bool: True если папка, False если файл
+        """
+        base_path = os.path.join(BASE_PATH, folder.lower())
+        return is_item_directory(base_path, item_name, rel_path)
 
     def get_settings_items(self):
         """Сформировать пункты меню настроек"""
@@ -335,18 +381,159 @@ class PlayerOS:
         """
         pass
 
+    def _resolve_selected_item_path(self):
+        """Собрать абсолютный путь к выбранному элементу с учетом подпапок."""
+        if not self.files:
+            return None
+
+        if self.selected_idx < 0 or self.selected_idx >= len(self.files):
+            return None
+
+        base = os.path.join(BASE_PATH, self.current_folder.lower())
+        if self.current_path:
+            return os.path.join(base, self.current_path, self.files[self.selected_idx])
+        return os.path.join(base, self.files[self.selected_idx])
+
+    @staticmethod
+    def format_playback_time(seconds):
+        """Форматировать секунды в мм:сс или ч:мм:сс для длинных треков."""
+        total = max(0, int(seconds))
+        hours = total // 3600
+        minutes = (total % 3600) // 60
+        secs = total % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
+
+    def get_media_duration(self, file_path):
+        """Получить длительность файла через ffprobe/ffmpeg (секунды)."""
+        def parse_seconds(raw_text):
+            raw = (raw_text or "").strip().replace(',', '.')
+            if not raw:
+                return 0.0
+            # Иногда ffprobe возвращает несколько строк, берем первую числовую.
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line or line.upper() == "N/A":
+                    continue
+                try:
+                    val = float(line)
+                    if val > 0:
+                        return val
+                except ValueError:
+                    continue
+            return 0.0
+
+        try:
+            probe_cmds = [
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    file_path,
+                ],
+                [
+                    "ffprobe",
+                    "-v", "error",
+                    "-select_streams", "a:0",
+                    "-show_entries", "stream=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    file_path,
+                ],
+            ]
+
+            for cmd in probe_cmds:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    seconds = parse_seconds(result.stdout)
+                    if seconds > 0:
+                        return seconds
+
+            # Fallback: парсим строку Duration из ffmpeg -i
+            ffmpeg_info = subprocess.run(
+                ["ffmpeg", "-i", file_path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            info_text = (ffmpeg_info.stderr or "") + "\n" + (ffmpeg_info.stdout or "")
+            match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", info_text)
+            if match:
+                h = int(match.group(1))
+                m = int(match.group(2))
+                s = float(match.group(3))
+                return h * 3600 + m * 60 + s
+
+            print("ffprobe/ffmpeg duration unavailable")
+        except Exception as e:
+            print(f"Error getting duration: {e}")
+        return 0
+
+    def get_playback_progress(self):
+        """Получить текущее время воспроизведения в секундах (от начала трека)"""
+        if not self.is_playing or self.playback_start_time == 0:
+            return 0
+        elapsed = time.time() - self.playback_start_time
+        return elapsed
+
+    def seek_media(self, seconds):
+        """Перемотать медиа на заданную позицию (в секундах)"""
+        if seconds < 0:
+            seconds = 0
+        # Не зажимать в 0, если длительность еще не определилась.
+        if self.current_track_duration and self.current_track_duration > 0 and seconds > self.current_track_duration:
+            seconds = self.current_track_duration
+        
+        # Убить текущий процесс
+        self.stop_media()
+        
+        # Запустить заново с offset'ом
+        file_path = self._resolve_selected_item_path()
+        if not file_path:
+            return
+        
+        try:
+            volume_value = self.volume / 100.0
+            cmd = [
+                "ffplay",
+                "-nodisp",
+                "-autoexit",
+                "-hide_banner",
+                "-loglevel", "error",
+                "-af", f"volume={volume_value}",
+                "-ss", str(seconds),  # Seek to position
+                file_path
+            ]
+            
+            self.ffplay_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            self.is_playing = True
+            self.is_paused = False
+            self.playback_start_time = time.time() - seconds  # Корректируем время старта
+            self.media_seek_offset = seconds
+        except Exception as e:
+            print(f"Error seeking: {e}")
+            self.is_playing = False
+
     def play_media(self):
         """Начать воспроизведение выбранного файла через ffplay"""
-        file_path = os.path.join(
-            BASE_PATH,
-            self.current_folder.lower(),
-            self.files[self.selected_idx]
-        )
+        file_path = self._resolve_selected_item_path()
+        if not file_path:
+            self.is_playing = False
+            return
         print(f"DEBUG: play_media() - File: {file_path}")
         print(f"DEBUG: File exists: {os.path.exists(file_path)}")
         
         try:
             self.stop_media()
+            
+            # Получить длительность файла
+            self.current_track_duration = self.get_media_duration(file_path)
+            self.media_seek_offset = 0
 
             # Громкость от 0 до 1.0 для ffplay фильтра
             volume_value = self.volume / 100.0
@@ -360,12 +547,14 @@ class PlayerOS:
                 file_path
             ]
             print(f"DEBUG: Command: {' '.join(cmd)}")
+            print(f"DEBUG: Track duration: {self.current_track_duration}s")
             
             self.ffplay_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
+            self.playback_start_time = time.time()  # Сохраняем время начала
             self.is_playing = True
             self.is_paused = False
             self.state = "PLAYING"
@@ -375,13 +564,37 @@ class PlayerOS:
             self.is_playing = False
 
     def play_next(self):
-        """Проигрыватель следующий файл в плейлисте"""
-        if self.files and self.selected_idx < len(self.files) - 1:
-            self.selected_idx += 1
-            self.play_media()
-        else:
+        """Проигрыватель следующий файл в плейлисте, циклит если конец"""
+        if not self.files:
+            print("No files to play")
             self.is_playing = False
             self.state = "FILE_BROWSER"
+            return
+
+        # Ищем следующий трек начиная с текущей позиции
+        idx = self.selected_idx + 1
+        while idx < len(self.files):
+            if not self.is_directory(self.files[idx], self.current_folder, self.current_path):
+                self.selected_idx = idx
+                print(f"Playing next track: {self.files[idx]}")
+                self.play_media()
+                return
+            idx += 1
+
+        # Если достигли конца папки, начинаем сначала с первого трека
+        idx = 0
+        while idx < len(self.files):
+            if not self.is_directory(self.files[idx], self.current_folder, self.current_path):
+                self.selected_idx = idx
+                print(f"Reached end, playing from beginning: {self.files[idx]}")
+                self.play_media()
+                return
+            idx += 1
+
+        # Не найдено ни одного трека для проигрывания
+        print(f"No playable tracks found in {self.current_folder}")
+        self.is_playing = False
+        self.state = "FILE_BROWSER"
 
     def stop_media(self):
         """Остановить воспроизведение"""
@@ -414,12 +627,10 @@ class PlayerOS:
     def view_photo(self):
         """Загрузить и отобразить фото на полный экран"""
         from PIL import Image
-        
-        file_path = os.path.join(
-            BASE_PATH,
-            self.current_folder.lower(),
-            self.files[self.selected_idx]
-        )
+
+        file_path = self._resolve_selected_item_path()
+        if not file_path:
+            return
         try:
             img = Image.open(file_path)
             img.thumbnail((320, 240), Image.Resampling.LANCZOS)
@@ -430,11 +641,10 @@ class PlayerOS:
 
     def view_video(self):
         """Запустить просмотр видео, декодировав его ffmpeg'ом"""
-        file_path = os.path.join(
-            BASE_PATH,
-            self.current_folder.lower(),
-            self.files[self.selected_idx]
-        )
+        file_path = self._resolve_selected_item_path()
+        if not file_path:
+            self.is_playing = False
+            return
         
         if not os.path.exists(file_path):
             print(f"ERROR: Video file not found: {file_path}")
@@ -473,7 +683,7 @@ class PlayerOS:
                 "-re",                             # Декодировать в реальном времени для синхронизации со звуком
                 "-i", file_path,
                 "-an",                             # Аудио декодирует отдельный ffplay
-                "-threads", "2",
+                "-threads", str(VIDEO_DECODER_THREADS),
                 "-vf", f"fps={self.video_target_fps},scale=320:240:flags=fast_bilinear",
                 "-pix_fmt", "rgb24",              # RGB24 формат пикселей
                 "-f", "rawvideo",                 # Сырой видео формат

@@ -80,6 +80,8 @@ def test_input_handler():
     app.current_folder = "Music"
     app.ffplay_process = None
     app.is_playing = False
+    app.video_frame = None
+    app.current_image = None
     app.play_media = lambda: None  # Заглушка для функции play_media
     
     # Тест UP в MAIN_MENU (должен уменьшить индекс на 1)

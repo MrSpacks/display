@@ -10,8 +10,13 @@ from luma.core.interface.serial import spi
 from luma.lcd.device import st7789
 from luma.core.render import canvas
 
-from .config import DISPLAY_CONFIG, FOLDERS, VOLUME_BAR, VOLUME_DISPLAY_DURATION
-from .utils import get_file_icon
+from .config import DISPLAY_CONFIG, FOLDERS, VOLUME_BAR, VOLUME_DISPLAY_DURATION, BACKLIGHT
+from .utils import get_file_icon, compute_progress_fill_rect
+
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None
 
 
 class Display:
@@ -19,6 +24,8 @@ class Display:
 
     def __init__(self):
         """Инициализация дисплея ST7789"""
+        self.backlight_pwm = None
+
         try:
             print("Initializing SPI interface...")
             spi_speed_hz = DISPLAY_CONFIG.get('spi_speed_hz', 32000000)
@@ -42,6 +49,9 @@ class Display:
             
             # Инверсия цветов (если нужно)
             self.device.command(0x21)
+
+            # Опциональная инициализация подсветки, если BL/LED подключен к GPIO.
+            self._init_backlight()
             print("✓ Display ready")
             
         except PermissionError as e:
@@ -54,6 +64,39 @@ class Display:
             print(f"  Error: {type(e).__name__}: {e}")
             print("  Check GPIO pins in config.py")
             sys.exit(1)
+
+    def _init_backlight(self):
+        """Настроить подсветку по BACKLIGHT конфигу."""
+        if not BACKLIGHT.get("enabled", False):
+            return
+
+        if GPIO is None:
+            print("WARNING: RPi.GPIO is unavailable, backlight control disabled")
+            return
+
+        pin = int(BACKLIGHT.get("gpio", 18))
+        pwm_hz = int(BACKLIGHT.get("pwm_hz", 1000))
+        brightness = int(BACKLIGHT.get("brightness_percent", 100))
+        active_high = bool(BACKLIGHT.get("active_high", True))
+        brightness = max(0, min(100, brightness))
+
+        GPIO.setup(pin, GPIO.OUT)
+
+        if pwm_hz > 0:
+            self.backlight_pwm = GPIO.PWM(pin, pwm_hz)
+            duty = brightness if active_high else (100 - brightness)
+            self.backlight_pwm.start(duty)
+            print(f"✓ Backlight PWM: GPIO{pin}, {brightness}%")
+        else:
+            on = GPIO.HIGH if (brightness > 0) == active_high else GPIO.LOW
+            GPIO.output(pin, on)
+            print(f"✓ Backlight GPIO{pin}: {'ON' if brightness > 0 else 'OFF'}")
+
+    def cleanup(self):
+        """Освободить ресурсы дисплея."""
+        if self.backlight_pwm:
+            self.backlight_pwm.stop()
+            self.backlight_pwm = None
 
     def update(self, app):
         """Обновить дисплей в зависимости от состояния приложения"""
@@ -170,22 +213,29 @@ class Display:
 
             elif app.state == "FILE_BROWSER":
                 # ===== БРАУЗЕР ФАЙЛОВ =====
-                # Сдвинули заголовок вниз на 20px для видимости
-                draw.text((30, 40), f"Folder: {app.current_folder}", fill="cyan", font=app.big_font)
+                breadcrumb = app.current_folder
+                if app.current_path:
+                    breadcrumb = f"{app.current_folder}/{app.current_path}"
 
-                start, end = visible_window(len(app.files), app.selected_idx, max_visible=6)
+                # Чтобы заголовок всегда был виден, ограничиваем длину.
+                if len(breadcrumb) > 24:
+                    breadcrumb = "..." + breadcrumb[-21:]
+                draw.text((10, 34), f"Folder: {breadcrumb}", fill="cyan", font=app.big_font)
+
+                # На реальном ST7789 используем плотный список: 5 строк без обрезки снизу.
+                start, end = visible_window(len(app.files), app.selected_idx, max_visible=5)
                 for row, i in enumerate(range(start, end)):
-                    f = app.files[i]
+                    item_name = app.files[i]
                     color = "white"
-                    # Сдвинули список файлов вниз на 50px от верхнего края
-                    y_pos = 70 + row * 28
+                    y_pos = 62 + row * 28
                     if i == app.selected_idx:
-                        draw.rectangle([5, y_pos, 235, y_pos + 26], outline="green", width=2)
-                    if y_pos < 240 - 20:
-                        # Добавили иконку файла перед названием
-                        icon = get_file_icon(f)
-                        filename_display = f[:20].ljust(20)  # Выровнять по ширине
-                        draw.text((15, y_pos), f"{icon} {filename_display}", fill=color, font=app.font)
+                        draw.rectangle([5, y_pos, 315, y_pos + 26], outline="green", width=2)
+
+                    if y_pos <= 220:
+                        is_dir = app.is_directory(item_name, app.current_folder, app.current_path)
+                        icon = get_file_icon(item_name, is_directory=is_dir)
+                        filename_display = item_name[:25]
+                        draw.text((12, y_pos + 3), f"{icon} {filename_display}", fill=color, font=app.font)
 
                 if start > 0:
                     draw.text((294, 55), "^", fill="gray", font=app.font)
@@ -196,7 +246,7 @@ class Display:
                 # ===== ЭКРАН ВОСПРОИЗВЕДЕНИЯ =====
                 # Сдвинули информацию вниз на 20px от верхнего края
                 draw.text((30, 40), "Now Playing:", fill="yellow", font=app.font)
-                draw.text((30, 70), app.files[app.selected_idx][:30], fill="white", font=app.font)
+                draw.text((20, 70), app.files[app.selected_idx][:20], fill="white", font=app.font)
                 
                 if app.is_paused:
                     status = "Paused"
@@ -206,7 +256,7 @@ class Display:
                     status = "Ended"
                     app.is_playing = False
                 
-                draw.text((30, 90), status, fill="green", font=app.font)
+                draw.text((30, 100), status, fill="green", font=app.font)
 
                 # Показывать полосу громкости только если недавно была нажата кнопка
                 show_volume_bar = (time.time() - app.volume_display_time) < VOLUME_DISPLAY_DURATION
@@ -226,7 +276,53 @@ class Display:
                     draw.text((bar['x'] - 20, bar['y'] + bar['height'] + 10), f"{app.volume}%",
                              fill="white", font=app.font)
                 
-                draw.text((10, 200), "[UP/DOWN] Volume  [BACK] Stop", fill="grey", font=app.font)
+                # ===== ПРОГРЕСС-БАР И ВРЕМЯ =====
+                # Получить текущее время воспроизведения
+                current_time = app.get_playback_progress()
+                total_time = app.current_track_duration
+                
+                # Вычислить процент
+                if total_time > 0:
+                    progress_percent = min(100, (current_time / total_time) * 100)
+                else:
+                    progress_percent = 0
+                
+                # Размеры прогресс-бара
+                progress_bar_y = 130
+                progress_bar_height = 8
+                progress_bar_width = 280
+                progress_bar_x = 20
+                
+                # Нарисовать фон прогресс-бара
+                draw.rectangle([progress_bar_x, progress_bar_y, progress_bar_x + progress_bar_width, 
+                               progress_bar_y + progress_bar_height],
+                              outline="white", fill="black", width=1)
+                
+                # Нарисовать заполненную часть
+                fill_rect = compute_progress_fill_rect(
+                    progress_bar_x,
+                    progress_bar_y,
+                    progress_bar_width,
+                    progress_bar_height,
+                    progress_percent,
+                    padding=2,
+                )
+                if fill_rect:
+                    draw.rectangle(fill_rect, fill="cyan")
+                
+                # Форматировать время
+                current_time = min(current_time, total_time) if total_time > 0 else current_time
+                if hasattr(app, "format_playback_time"):
+                    time_text = f"{app.format_playback_time(current_time)} / {app.format_playback_time(total_time)}"
+                else:
+                    mins_cur = int(current_time) // 60
+                    secs_cur = int(current_time) % 60
+                    mins_total = int(total_time) // 60
+                    secs_total = int(total_time) % 60
+                    time_text = f"{mins_cur}:{secs_cur:02d} / {mins_total}:{secs_total:02d}"
+                draw.text((30, 145), f"{progress_percent:.0f}%  {time_text}", fill="white", font=app.font)
+                
+                draw.text((10, 180), "^ v Vol  [< long] <<  [>long] >>", fill="grey", font=app.font)
 
             elif app.state == "VIEWING":
                 # ===== РЕЖИМ ПРОСМОТРА (ФОТО/ВИДЕО) =====

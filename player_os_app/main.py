@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import RPi.GPIO as GPIO
 
-from .config import BUTTONS
+from .config import BUTTONS, MAIN_LOOP_SLEEP_VIDEO, MAIN_LOOP_SLEEP_IDLE
 from .core_player import PlayerOS
 
 
@@ -75,6 +75,11 @@ def main():
     app = PlayerOS()
     print("✓ Application ready\n")
     
+    # ===== ОТСЛЕЖИВАНИЕ НАЖАТИЙ КНОПОК =====
+    button_press_times = {name: 0 for name in BUTTONS}  # Время начала нажатия для каждой кнопки
+    LONG_PRESS_THRESHOLD = 1.0  # Секунды для определения long-press
+    SEEK_OFFSET = 10  # Секунды перемотки при long-press
+    
     print("="*60)
     print("Running main loop (press Ctrl+C to stop)...")
     print("="*60 + "\n")
@@ -98,7 +103,38 @@ def main():
                 # Если кнопка ПЕРЕШЛА в состояние "нажата"
                 if app.button_states[name] and not current_state:
                     print(f"Button pressed: {name}")
-                    InputHandler.handle_click(app, name)
+                    button_press_times[name] = time.time()  # Сохраняем время нажатия
+                    # НЕ вызываем handle_click здесь, ждем отпускания кнопки
+                
+                # Если кнопка ПЕРЕШЛА в состояние "отпущена"
+                elif not app.button_states[name] and current_state:
+                    print(f"Button released: {name}")
+                    press_duration = time.time() - button_press_times[name]
+                    
+                    # Проверяем был ли это long-press
+                    if press_duration >= LONG_PRESS_THRESHOLD:
+                        print(f"Long-press detected on {name} ({press_duration:.1f}s)")
+                        
+                        # Обработка long-press для перемотки во время воспроизведения
+                        if app.state == "PLAYING" and app.is_playing:
+                            if name == "BACK":
+                                # Перемотать назад
+                                current_pos = app.get_playback_progress()
+                                new_pos = max(0, current_pos - SEEK_OFFSET)
+                                print(f"Seeking back: {current_pos:.1f}s -> {new_pos:.1f}s")
+                                app.seek_media(new_pos)
+                            elif name == "SELECT":
+                                # Перемотать вперед
+                                current_pos = app.get_playback_progress()
+                                if app.current_track_duration and app.current_track_duration > 0:
+                                    new_pos = min(app.current_track_duration, current_pos + SEEK_OFFSET)
+                                else:
+                                    new_pos = current_pos + SEEK_OFFSET
+                                print(f"Seeking forward: {current_pos:.1f}s -> {new_pos:.1f}s")
+                                app.seek_media(new_pos)
+                    else:
+                        # Обычное нажатие (short-press)
+                        InputHandler.handle_click(app, name)
                 
                 # Запоминаем текущее состояние для следующей итерации
                 app.button_states[name] = current_state
@@ -106,17 +142,19 @@ def main():
             # 3. Проверяем окончание текущего файла
             if app.state == "PLAYING" and app.is_playing:
                 if app.ffplay_process and app.ffplay_process.poll() is not None:
-                    print("Track ended, playing next...")
+                    print(f"Track ended: {app.files[app.selected_idx] if app.files and app.selected_idx < len(app.files) else 'unknown'}")
                     app.play_next()
             
             # 4. Пауза цикла: в режиме видео держим минимальную задержку.
-            time.sleep(0.003 if is_video_viewing else 0.05)
+            time.sleep(MAIN_LOOP_SLEEP_VIDEO if is_video_viewing else MAIN_LOOP_SLEEP_IDLE)
     
     # Обработка прерывания (Ctrl+C)
     except KeyboardInterrupt:
         print("\n\nShutdown signal received")
         if app.ffplay_process:
             app.stop_media()
+        if hasattr(display, "cleanup"):
+            display.cleanup()
         GPIO.cleanup()
         print("GPIO cleaned up")
         print("Goodbye!")
