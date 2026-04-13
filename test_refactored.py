@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Тест модулей refactored player_os_app
+Test modulů refactored player_os_app
 """
 
 import sys
@@ -11,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 def test_config():
-    """Тест конфига"""
+    """Тест конфига
+    Test konfigurace"""
     print("✓ Testing config...")
     from player_os_app.config import BUTTONS, FOLDERS, DISPLAY_CONFIG
     
@@ -25,7 +27,8 @@ def test_config():
 
 
 def test_utils():
-    """Тест утилит"""
+    """Тест утилит
+    Test nástrojů"""
     print("\n✓ Testing utils...")
     from player_os_app.utils import get_file_type, get_file_icon
     
@@ -35,6 +38,7 @@ def test_utils():
     print("  - File type detection OK")
     
     # Тест иконок
+    # Test ikon
     music_icon = get_file_icon("test.mp3")
     video_icon = get_file_icon("test.mp4")
     photo_icon = get_file_icon("test.jpg")
@@ -46,11 +50,13 @@ def test_utils():
 
 
 def test_core_player():
-    """Тест основного плеера (без GPIO/display инициализации)"""
+    """Тест основного плеера (без GPIO/display инициализации)
+    Test hlavního přehrávače (bez inicializace GPIO/display)"""
     print("\n✓ Testing core_player...")
     from player_os_app.core_player import PlayerOS
     
     # Не инициализируем GPIO/display, только проверяем класс
+    # Neinicializujeme GPIO/display, pouze testujeme třídu
     app = PlayerOS.__new__(PlayerOS)  # Создаём объект без __init__
     app.state = "MAIN_MENU"
     app.volume = 50
@@ -65,7 +71,8 @@ def test_core_player():
 
 
 def test_input_handler():
-    """Тест обработчика ввода"""
+    """Тест обработчика ввода
+    Test obsluhy vstupu"""
     print("\n✓ Testing input_handler...")
     from player_os_app.input_handler import InputHandler
     from player_os_app.core_player import PlayerOS
@@ -81,23 +88,28 @@ def test_input_handler():
     app.ffplay_process = None
     app.is_playing = False
     app.play_media = lambda: None  # Заглушка для функции play_media
+                                   # Zástupná funkce pro play_media
     
     # Тест UP в MAIN_MENU (должен уменьшить индекс на 1)
+    # Test UP v MAIN_MENU (měl by snížit index o 1)
     handler.handle_click(app, "UP")
     assert app.selected_idx == 0, "UP navigation failed"
     print("  - Navigation UP OK")
     
     # Тест UP в начале (должен остаться на 0, не оборачиваться)
+    # Test UP na začátku (měl by zůstat na 0, nepřetáčet)
     handler.handle_click(app, "UP")
     assert app.selected_idx == 0, "UP at start should stay at 0"
     print("  - UP at start OK (stays at 0)")
     
     # Тест DOWN
+    # Test DOWN
     handler.handle_click(app, "DOWN")
     assert app.selected_idx == 1, "DOWN navigation failed"
     print("  - Navigation DOWN OK")
     
     # Тест громкости во время проигрывания
+    # Test hlasitosti během přehrávání
     app.state = "PLAYING"
     app.volume = 50
     old_time = app.volume_display_time
@@ -112,13 +124,15 @@ def test_input_handler():
 
 
 def test_imports():
-    """Тест импортов всех модулей"""
+    """Тест импортов всех модулей
+    Test importů všech modulů"""
     print("\n✓ Testing module imports...")
     try:
         from player_os_app import PlayerOS
         print("  - PlayerOS import OK")
         
         # Тест индивидуальных модулей
+        # Test jednotlivých modulů
         import player_os_app.config
         import player_os_app.core_player
         import player_os_app.input_handler

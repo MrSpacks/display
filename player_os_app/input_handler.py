@@ -1,5 +1,6 @@
 """
 Обработка входа (кнопок)
+Zpracování vstupu (tlačítek)
 """
 
 import time
@@ -9,12 +10,14 @@ from .utils import get_file_type
 
 
 class InputHandler:
-    """Класс для обработки нажатий кнопок"""
+    """Класс для обработки нажатий кнопок
+    Třída pro zpracování stisknutí tlačítek"""
 
     @staticmethod
     def handle_click(app, btn):
         """
         Обработать нажатие кнопки
+        Zpracovat stisknutí tlačítka
         
         Args:
             app: Экземпляр PlayerOS
@@ -32,7 +35,8 @@ class InputHandler:
             return 0
 
         def browse_photo(delta):
-            """Листать фото в текущей папке, пропуская не-фото файлы."""
+            """Листать фото в текущей папке, пропуская не-фото файлы.
+            Listovat fotky v aktuální složce, přeskakovat soubory, které nejsou fotky."""
             if not app.files:
                 return False
 
@@ -47,50 +51,63 @@ class InputHandler:
             return False
 
         # ===== КНОПКА UP =====
+        # ===== TLAČÍTKO UP =====
         if btn == 'UP':
             if app.state == "PLAYING" and not app.video_frame:
                 # Во время проигрывания МУЗЫКИ - увеличиваем громкость
+                # Během přehrávání HUDBY - zvyšujeme hlasitost
                 app.volume = min(100, app.volume + 10)
                 app.volume_display_time = time.time()  # Показать полосу громкости
+                                                       # Zobrazit pruh hlasitosti
                 print(f"Volume: {app.volume}%")
                 # Перезапустить с новой громкостью
+                # Restartovat s novou hlasitostí
                 app.play_media()
             elif app.state == "VIEWING":
                 if app.current_image is not None:
                     browse_photo(-1)
                 else:
                     # Во время просмотра видео оставляем управление громкостью
+                    # Během přehrávání videa ponecháváme ovládání hlasitosti
                     app.volume = min(100, app.volume + 10)
                     app.volume_display_time = time.time()
                     print(f"Volume: {app.volume}%")
             else:
                 # В других режимах - листаем вверх
+                # V ostatních režimech - listujeme nahoru
                 app.selected_idx = max(0, app.selected_idx - 1)
 
         # ===== КНОПКА DOWN =====
+        # ===== TLAČÍTKO DOWN =====
         elif btn == 'DOWN':
             if app.state == "PLAYING" and not app.video_frame:
                 # Во время проигрывания МУЗЫКИ - уменьшаем громкость
+                # Během přehrávání HUDBY - snižujeme hlasitost
                 app.volume = max(0, app.volume - 10)
                 app.volume_display_time = time.time()  # Показать полосу громкости
+                                                       # Zobrazit pruh hlasitosti
                 print(f"Volume: {app.volume}%")
                 # Перезапустить с новой громкостью
+                # Restartovat s novou hlasitostí
                 app.play_media()
             elif app.state == "VIEWING":
                 if app.current_image is not None:
                     browse_photo(1)
                 else:
                     # Во время просмотра видео оставляем управление громкостью
+                    # Během přehrávání videa ponecháváme ovládání hlasitosti
                     app.volume = max(0, app.volume - 10)
                     app.volume_display_time = time.time()
                     print(f"Volume: {app.volume}%")
             else:
                 # В других режимах - листаем вниз
+                # V ostatních režimech - listujeme dolů
                 limit = current_list_limit()
                 if limit > 0:
                     app.selected_idx = min(limit - 1, app.selected_idx + 1)
 
         # ===== КНОПКА BACK =====
+        # ===== TLAČÍTKO BACK =====
         elif btn == 'BACK':
             if app.state == "VIEWING":
                 app.stop_media()
@@ -112,8 +129,10 @@ class InputHandler:
                 app.state = "MAIN_MENU"
 
         # ===== КНОПКА SELECT =====
+        # ===== TLAČÍTKO SELECT =====
         elif btn == 'SELECT':
             # _____ В главном меню _____
+            # _____ V hlavním menu _____
             if app.state == "MAIN_MENU":
                 choice = FOLDERS[app.selected_idx]
 
@@ -152,6 +171,7 @@ class InputHandler:
                     app.toggle_pause()
 
             # _____ В браузере файлов _____
+            # _____ V prohlížeči souborů _____
             elif app.state == "FILE_BROWSER":
                 if app.files:
                     file_name = app.files[app.selected_idx]
@@ -162,9 +182,11 @@ class InputHandler:
                     elif file_type == 'video':
                         app.view_video()
                         app.state = "VIEWING"  # Переходим в режим просмотра
+                                               # Přecházíme do režimu prohlížení
                     else:  # music и другие
                         app.play_media()
 
             # _____ Во время воспроизведения _____
+            # _____ Během přehrávání _____
             elif app.state == "PLAYING":
                 app.toggle_pause()

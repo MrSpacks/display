@@ -16,6 +16,7 @@ __author__ = "PlayerOS Developer"
 from .core_player import PlayerOS
 
 # Display и InputHandler импортируются только в main.py чтобы избежать зависимостей
+# Display a InputHandler jsou importovány pouze v main.py, aby se předešlo závislostem
 
 __all__ = [
     'PlayerOS',

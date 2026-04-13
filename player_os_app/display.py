@@ -1,5 +1,6 @@
 """
 Управление дисплеем и отрисовкой
+Správa displeje a vykreslování
 """
 
 import time
@@ -15,10 +16,12 @@ from .utils import get_file_icon
 
 
 class Display:
-    """Класс для управления дисплеем"""
+    """Класс для управления дисплеем
+    Třída pro správu displeje"""
 
     def __init__(self):
-        """Инициализация дисплея ST7789"""
+        """Инициализация дисплея ST7789
+        Inicializace displeje ST7789"""
         try:
             print("Initializing SPI interface...")
             spi_speed_hz = DISPLAY_CONFIG.get('spi_speed_hz', 32000000)
@@ -41,6 +44,7 @@ class Display:
             print(f"✓ Display initialized: {DISPLAY_CONFIG['width']}x{DISPLAY_CONFIG['height']}")
             
             # Инверсия цветов (если нужно)
+            # Inverze barev (pokud je potřeba)
             self.device.command(0x21)
             print("✓ Display ready")
             
@@ -56,9 +60,11 @@ class Display:
             sys.exit(1)
 
     def update(self, app):
-        """Обновить дисплей в зависимости от состояния приложения"""
+        """Обновить дисплей в зависимости от состояния приложения
+        Aktualizovat displej podle stavu aplikace"""
         def visible_window(total, selected, max_visible):
-            """Вернуть диапазон [start, end) для прокрутки списка."""
+            """Вернуть диапазон [start, end) для прокрутки списка.
+            Vrátit rozsah [start, end) pro posouvání seznamu."""
             if total <= 0:
                 return 0, 0
             if total <= max_visible:
@@ -73,6 +79,7 @@ class Display:
 
         if app.state == "VIEWING" and (app.video_frame or app.current_image):
             # Для полноцветных кадров используем прямой вывод PIL изображения на устройство.
+            # Pro plnobarevné snímky používáme přímý výstup PIL obrázku na zařízení.
             if app.video_frame:
                 img = app.video_frame
                 if img.mode != "RGB":
@@ -100,21 +107,26 @@ class Display:
         with canvas(self.device) as draw:
             if app.state == "MAIN_MENU":
                 # ===== ГЛАВНОЕ МЕНЮ =====
+                # ===== HLAVNÍ MENU =====
                 # Сдвинули заголовок вниз на 20px для видимости на дисплее
+                # Posunuli jsme nadpis dolů o 20px pro viditelnost na displeji
                 draw.text((30, 40), "--- MEDIA PLAYER ---", fill="yellow", font=app.big_font)
                 for i, item in enumerate(FOLDERS):
                     color = "white"
                     # Сдвинули меню вниз относительно заголовка (60px)
+                    # Posunuli jsme menu dolů relativně k nadpisu (60px)
                     y_pos = 80 + i * 30  # 35px - это расстояние между пунктами меню
                     if i == app.selected_idx:
                         draw.rectangle([10, y_pos, 310, y_pos + 28], outline="red", width=2) # 
                         color = "red"
                     # Добавили иконку папки перед названием
+                    # Přidali jsme ikonu složky před název
                     icon = '⚙' if item == "Settings" else '📂'
                     draw.text((20, y_pos), f"{icon} {item}", fill=color, font=app.font)
 
             elif app.state == "SETTINGS_MENU":
                 # ===== МЕНЮ НАСТРОЕК =====
+                # ===== MENU NASTAVENÍ =====
                 draw.text((30, 35), "Settings", fill="yellow", font=app.big_font)
 
                 bt_line = "BT: disconnected"
@@ -143,6 +155,7 @@ class Display:
 
             elif app.state == "BT_DEVICES":
                 # ===== СПИСОК BLUETOOTH УСТРОЙСТВ =====
+                # ===== SEZNAM BLUETOOTH ZAŘÍZENÍ =====
                 draw.text((30, 40), "BT devices (SELECT connect)", fill="yellow", font=app.font)
 
                 if not app.bt_devices:
@@ -170,7 +183,9 @@ class Display:
 
             elif app.state == "FILE_BROWSER":
                 # ===== БРАУЗЕР ФАЙЛОВ =====
+                # ===== PROHLÍŽEČ SOUBORŮ =====
                 # Сдвинули заголовок вниз на 20px для видимости
+                # Posunuli jsme nadpis dolů o 20px pro viditelnost
                 draw.text((30, 40), f"Folder: {app.current_folder}", fill="cyan", font=app.big_font)
 
                 start, end = visible_window(len(app.files), app.selected_idx, max_visible=6)
@@ -178,11 +193,13 @@ class Display:
                     f = app.files[i]
                     color = "white"
                     # Сдвинули список файлов вниз на 50px от верхнего края
+                    # Posunuli jsme seznam souborů dolů o 50px od horního okraje
                     y_pos = 70 + row * 28
                     if i == app.selected_idx:
                         draw.rectangle([5, y_pos, 235, y_pos + 26], outline="green", width=2)
                     if y_pos < 240 - 20:
                         # Добавили иконку файла перед названием
+                        # Přidali jsme ikonu souboru před název
                         icon = get_file_icon(f)
                         filename_display = f[:20].ljust(20)  # Выровнять по ширине
                         draw.text((15, y_pos), f"{icon} {filename_display}", fill=color, font=app.font)
@@ -194,7 +211,9 @@ class Display:
 
             elif app.state == "PLAYING":
                 # ===== ЭКРАН ВОСПРОИЗВЕДЕНИЯ =====
+                # ===== OBRAZOVKA PŘEHRÁVÁNÍ =====
                 # Сдвинули информацию вниз на 20px от верхнего края
+                # Posunuli jsme informace dolů o 20px od horního okraje
                 draw.text((30, 40), "Now Playing:", fill="yellow", font=app.font)
                 draw.text((30, 70), app.files[app.selected_idx][:30], fill="white", font=app.font)
                 
@@ -209,10 +228,12 @@ class Display:
                 draw.text((30, 90), status, fill="green", font=app.font)
 
                 # Показывать полосу громкости только если недавно была нажата кнопка
+                # Zobrazit pruh hlasitosti pouze pokud bylo nedávno stisknuto tlačítko
                 show_volume_bar = (time.time() - app.volume_display_time) < VOLUME_DISPLAY_DURATION
                 
                 if show_volume_bar:
                     # Полоса громкости (видна 2 секунды после нажатия)
+                    # Pruh hlasitosti (viditelný 2 sekundy po stisknutí)
                     bar = VOLUME_BAR
                     draw.rectangle([bar['x'], bar['y'], bar['x'] + bar['width'], bar['y'] + bar['height']],
                                  outline="white", fill="black", width=1)
@@ -230,6 +251,7 @@ class Display:
 
             elif app.state == "VIEWING":
                 # ===== РЕЖИМ ПРОСМОТРА (ФОТО/ВИДЕО) =====
+                # ===== REŽIM PROHLÍŽENÍ (FOTO/VIDEO) =====
                 if app.is_playing:
                     draw.rectangle([0, 0, 320, 240], fill="black")
                     title = "Paused Video" if app.is_paused else "Playing Video..."
