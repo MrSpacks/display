@@ -1,0 +1,49 @@
+[Unit]
+Description=PlayerPi Media Application
+After=network.target bluetooth.target alsa-restore.service pulseaudio.service
+Wants=sound.target alsa-restore.service
+
+[Service]
+# Путь к папке проекта
+WorkingDirectory=/home/spacks/display
+
+# Запуск от root (для доступа к GPIO)
+User=root
+
+# Для ALSA (явно указываем PCM и контроль громкости)
+Environment="ALSA_CARD=default"
+Environment="ALSA_CTL_CARD=default"
+
+# Для PulseAudio/PipeWire
+Environment="PULSE_RUNTIME_PATH=/run/user/1000/pulse"
+Environment="PULSE_SERVER=/run/user/1000/pulse/native"
+
+# Основные переменные
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/home/spacks"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+
+# Задержка перед стартом - даёт время на инициализацию аудио
+ExecStartPre=/usr/bin/sleep 3
+
+# Путь к python внутри твоего venv и запуск модуля
+ExecStart=/home/spacks/display/venv/bin/python3 -m player_os_app.main
+
+# Логирование
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=playerpi
+
+# Перезапуск при падении
+Restart=always
+RestartSec=5
+
+# Таймауты
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Привилегии
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
